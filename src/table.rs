@@ -107,22 +107,45 @@ impl SiteRow {
     }
 }
 
-/// Format a frequency with 6 significant figures, stripping trailing zeros —
-/// matching C `printf("%g", x)` for values in [0, 1].
+/// Reproduce C `printf("%g", x)` at the default precision 6 (six significant
+/// figures), which is what vcftools' `out << freq` iostream default emits.
+///
+/// The style (fixed vs scientific) and rounding are decided on the decimal
+/// exponent *after* rounding to six significant digits, exactly as C does:
+/// scientific when that exponent is < -4 or >= 6, fixed otherwise. Trailing
+/// zeros and a bare decimal point are dropped. `NaN`/`inf` render lowercase
+/// to match a 0/0 all-missing site.
 pub fn format_g6(x: f64) -> String {
+    if x.is_nan() {
+        return "nan".to_string();
+    }
+    if x.is_infinite() {
+        return if x < 0.0 { "-inf" } else { "inf" }.to_string();
+    }
     if x == 0.0 {
         return "0".to_string();
     }
-    if x == 1.0 {
-        return "1".to_string();
+
+    const PRECISION: i32 = 6;
+    let sci = format!("{:.*e}", (PRECISION - 1) as usize, x);
+    let (mantissa, exp_str) = sci.split_once('e').unwrap();
+    let exp: i32 = exp_str.parse().unwrap();
+
+    if (-4..PRECISION).contains(&exp) {
+        let decimals = (PRECISION - 1 - exp).max(0) as usize;
+        strip_g(format!("{x:.decimals$}"))
+    } else {
+        let sign = if exp < 0 { '-' } else { '+' };
+        format!("{}e{}{:02}", strip_g(mantissa.to_string()), sign, exp.abs())
     }
-    // format!("{:.6}", x) gives 6 decimal places, which for values in (0,1)
-    // where the leading sig fig is at most 10^0, equals 6 sig figs.
-    // Stripping trailing zeros matches %g behaviour.
-    format!("{:.6}", x)
-        .trim_end_matches('0')
-        .trim_end_matches('.')
-        .to_string()
+}
+
+fn strip_g(s: String) -> String {
+    if s.contains('.') {
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    } else {
+        s
+    }
 }
 
 /// Render the full table (header + one line per site) for `mode`.
@@ -150,6 +173,31 @@ mod tests {
         assert_eq!(format_g6(1.0 / 6.0), "0.166667");
         assert_eq!(format_g6(0.0), "0");
         assert_eq!(format_g6(1.0), "1");
+    }
+
+    #[test]
+    fn format_g6_six_sig_figs_below_tenth() {
+        // %g keeps six significant figures, not six decimal places: 1/60.
+        assert_eq!(format_g6(1.0 / 60.0), "0.0166667");
+        assert_eq!(format_g6(59.0 / 60.0), "0.983333");
+        assert_eq!(format_g6(11999.0 / 12000.0), "0.999917");
+    }
+
+    #[test]
+    fn format_g6_scientific_below_1e_minus_4() {
+        // Exponent < -4 switches to %e style with a two-digit signed exponent.
+        assert_eq!(format_g6(1.0 / 12000.0), "8.33333e-05");
+        assert_eq!(format_g6(5e-5), "5e-05");
+        // Exactly 1e-4 stays fixed (exponent -4 is not < -4).
+        assert_eq!(format_g6(1e-4), "0.0001");
+    }
+
+    #[test]
+    fn format_g6_nan_is_lowercase() {
+        assert_eq!(format_g6(f64::NAN), "nan");
+        // The all-missing site computes 0 / N_CHR with N_CHR == 0.
+        let n_chr = 0u32;
+        assert_eq!(format_g6(0u32 as f64 / n_chr as f64), "nan");
     }
 
     #[test]

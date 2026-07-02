@@ -45,6 +45,29 @@ Same columns without allele labels; header says `{COUNT}`.
 - **Allele order**: REF first, then each ALT in VCF column order.
 - **Frequency format**: 6 significant figures, trailing zeros stripped — matching C `printf("%g", x)`.
 
+## Error handling
+
+A VCF with zero individuals — a sites-only file (only the eight mandatory
+`#CHROM` columns) or a header that carries `FORMAT` but no sample columns —
+cannot produce frequency statistics. As with vcftools, the tool exits non-zero
+with `Require Genotypes in VCF file in order to output Frequency Statistics.`
+and writes no table. A header that declares samples but whose `FORMAT` lacks a
+`GT` subfield is different: every genotype is treated as missing, so each site
+still prints with `N_CHR=0`.
+
+## Boundaries
+
+Output is byte-identical to vcftools 0.1.17 on every well-formed,
+coordinate-sorted, equal-width VCF. On the following malformed inputs vcftools'
+own behavior is undefined or buggy, so this tool follows the deterministic,
+correct interpretation instead of byte-matching:
+
+- **Ragged rows** — data rows whose sample-column count disagrees with the
+  `#CHROM` line. vcftools reads whatever columns are present without bounds
+  checking; results depend on stale buffer contents.
+- **Non-numeric POS** — vcftools passes POS through C `atoi`, so `ABC` silently
+  becomes `0`. This tool rejects the record rather than fabricate a coordinate.
+
 ## Origin
 
 This crate is an independent Rust reimplementation of `vcftools 0.1.17`
