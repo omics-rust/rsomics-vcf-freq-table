@@ -1,5 +1,6 @@
 //! Per-site data model and TSV rendering for the four vcftools freq/count modes.
 
+use rsomics_common::fmt::format_g6;
 use serde::Serialize;
 
 /// Which of the four vcftools output modes to produce.
@@ -104,47 +105,6 @@ impl SiteRow {
             parts.push(self.col(i, mode));
         }
         parts.join("\t")
-    }
-}
-
-/// Reproduce C `printf("%g", x)` at the default precision 6 (six significant
-/// figures), which is what vcftools' `out << freq` iostream default emits.
-///
-/// The style (fixed vs scientific) and rounding are decided on the decimal
-/// exponent *after* rounding to six significant digits, exactly as C does:
-/// scientific when that exponent is < -4 or >= 6, fixed otherwise. Trailing
-/// zeros and a bare decimal point are dropped. `NaN`/`inf` render lowercase
-/// to match a 0/0 all-missing site.
-pub fn format_g6(x: f64) -> String {
-    if x.is_nan() {
-        return "nan".to_string();
-    }
-    if x.is_infinite() {
-        return if x < 0.0 { "-inf" } else { "inf" }.to_string();
-    }
-    if x == 0.0 {
-        return "0".to_string();
-    }
-
-    const PRECISION: i32 = 6;
-    let sci = format!("{:.*e}", (PRECISION - 1) as usize, x);
-    let (mantissa, exp_str) = sci.split_once('e').unwrap();
-    let exp: i32 = exp_str.parse().unwrap();
-
-    if (-4..PRECISION).contains(&exp) {
-        let decimals = (PRECISION - 1 - exp).max(0) as usize;
-        strip_g(format!("{x:.decimals$}"))
-    } else {
-        let sign = if exp < 0 { '-' } else { '+' };
-        format!("{}e{}{:02}", strip_g(mantissa.to_string()), sign, exp.abs())
-    }
-}
-
-fn strip_g(s: String) -> String {
-    if s.contains('.') {
-        s.trim_end_matches('0').trim_end_matches('.').to_string()
-    } else {
-        s
     }
 }
 
